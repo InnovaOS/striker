@@ -1,0 +1,12 @@
+{
+  "name": "striker",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Striker orchestration around Cline",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "dev": "echo \"(later) run extension + agent\""
+  }
+}
