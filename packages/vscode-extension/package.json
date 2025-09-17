@@ -1,0 +1,40 @@
+{
+  "name": "striker-vscode",
+  "displayName": "Striker Dev",
+  "publisher": "striker",
+  "version": "0.0.1",
+  "engines": {
+    "vscode": "^1.84.0"
+  },
+  "categories": ["Other"],
+  "main": "./out/extension.js",
+  "activationEvents": [
+    "onCommand:striker.hello",
+    "onCommand:striker.about",
+    "onCommand:striker.runAgentStub"
+
+  ],
+  "contributes": {
+    "commands": [
+      { "command": "striker.hello", "title": "Striker: Hello" },
+      { "command": "striker.about", "title": "Striker: About" },
+      { "command": "striker.runAgentStub", "title": "Striker: Run Agent (stub)" }
+
+    ]
+  },
+  "scripts": {
+    "compile": "tsc -p .",
+    "watch": "tsc -w -p ."
+  },
+  "devDependencies": {
+    "typescript": "^5.6.2",
+    "@types/node": "^20.0.0",
+    "@types/vscode": "^1.84.0"
+  },
+  "dependencies": {
+    "cline-adapter": "workspace:*"
+  }
+
+}
+
+
