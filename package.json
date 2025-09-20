@@ -2,11 +2,20 @@
   "name": "striker",
   "private": true,
   "version": "0.1.0",
-  "description": "Striker orchestration around Cline",
+  "description": "Striker monorepo",
   "workspaces": [
     "packages/*"
   ],
   "scripts": {
-    "dev": "echo \"(later) run extension + agent\""
+    "compile": "pnpm -r --workspace-concurrency=1 run compile",
+    "build": "pnpm -r --filter \"./packages/*\" run build",
+    "watch": "pnpm -r --workspace-concurrency=1 run watch",
+    "clean": "pnpm -r --filter \"./packages/*\" run clean || true"
+  },
+  "devDependencies": {
+    "rimraf": "^6.0.1"
+  },
+  "dependencies": {
+    "anthropic": "^0.0.0"
   }
 }
