@@ -15,7 +15,9 @@
       {
         "command": "striker.runAgent",
         "title": "Striker: Run Agent"
-      }
+      },
+      { "command": "striker.showDemo", "title": "Striker: Show Demo" }
+
     ]
   },
   "scripts": {
