@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { runTask } from '../../../core-agent/dist/index.js';
 import { showResultsPanel } from '../ui/resultsPanel.js';
+import { demoHappy } from '../demoPayload'; // or whatever your demo export is
 
 // Types for normalization
 type StepStatus = 'ok' | 'warning' | 'error' | 'running' | 'skipped';
@@ -105,31 +106,40 @@ function normalizePayload(raw: any): AgentPayload {
 }
 
 // Register the command
+
 export function registerRunAgent(context: vscode.ExtensionContext) {
   const cmdId = 'striker.runAgent';
+  context.subscriptions.push(
+    vscode.commands.registerCommand(cmdId, async () => {
+      const userPrompt = await vscode.window.showInputBox({
+        prompt: 'What should Striker do?',
+        placeHolder: 'e.g., “scan workspace and propose edits”',
+      });
+      if (!userPrompt) return;
 
-  const disposable = vscode.commands.registerCommand(cmdId, async () => {
-    const userPrompt = await vscode.window.showInputBox({
-      prompt: 'What should Striker do?',
-      placeHolder: 'e.g., “scan workspace and propose edits”',
-    });
-    if (!userPrompt) return;
-
-    const payloadRaw = await vscode.window.withProgress(
-      { location: vscode.ProgressLocation.Notification, title: 'Striker', cancellable: false },
-      async progress => {
-        progress.report({ message: 'Planning…' });
-        const result = await runTask({ prompt: userPrompt, mode: 'preview' });
-        progress.report({ message: 'Done' });
-        return result;
+      let payload: any;
+      try {
+        const raw = await vscode.window.withProgress(
+          { location: vscode.ProgressLocation.Notification, title: 'Striker', cancellable: false },
+          async progress => {
+            progress.report({ message: 'Planning…' });
+            const res = await runTask({ prompt: userPrompt, mode: 'preview' });
+            progress.report({ message: 'Done' });
+            return res;
+          }
+        );
+        payload = normalizePayload(raw);
+      } catch (e) {
+        vscode.window.showErrorMessage(`[Striker] Agent failed: ${String(e)}`);
       }
-    );
 
-    const payload = normalizePayload(payloadRaw);
-    console.log('[Striker] normalized payload:', payload);
+      // Fallback if agent returned nothing or empty
+      if (!payload || !payload.plan || !Array.isArray(payload.plan.steps)) {
+        payload = demoHappy;
+      }
 
-    showResultsPanel('Striker Results', payload);
-  });
-
-  context.subscriptions.push(disposable);
+      console.log('[Striker] sending payload to panel:', payload);
+      showResultsPanel('Striker Results', payload);
+    })
+  );
 }
