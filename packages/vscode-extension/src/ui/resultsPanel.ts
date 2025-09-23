@@ -1,300 +1,270 @@
+// packages/vscode-extension/src/ui/resultsPanel.ts
 import * as vscode from 'vscode';
 
-export function showResultsPanel(title: string, payload: any) {
-  const panel = vscode.window.createWebviewPanel(
-    'strikerResults',
+let currentPanel: vscode.WebviewPanel | undefined;
+let lastPayload: any | undefined;
+
+export function acquireOrCreateResultsPanel(title: string): vscode.WebviewPanel {
+  if (currentPanel) {
+    currentPanel.title = title;
+    currentPanel.reveal(vscode.ViewColumn.Active);
+    return currentPanel;
+  }
+  currentPanel = vscode.window.createWebviewPanel(
+    'striker.results',
     title,
-    vscode.ViewColumn.Beside,
-    { enableScripts: true }
+    vscode.ViewColumn.Active,
+    { enableScripts: true, retainContextWhenHidden: true, enableCommandUris: true }
   );
+  currentPanel.onDidDispose(() => (currentPanel = undefined));
+  // lightweight shell; full content set by showResultsPanel
+  currentPanel.webview.html = baseHtml();
+  return currentPanel;
+}
 
-  panel.webview.html = getWebviewContent(payload);
+export function showResultsPanel(title: string, payload: any) {
+  lastPayload = payload;
+  const panel = acquireOrCreateResultsPanel(title);
+  panel.webview.html = renderHtml(payload);
+}
 
-  // IMPORTANT: message bridge (needed for buttons & clickable paths)
-  panel.webview.onDidReceiveMessage(async (msg) => {
-    try {
-      if (msg?.command === 'openFile' && typeof msg?.path === 'string') {
-        await openWorkspacePath(msg.path);
-        return;
-      }
-      if (msg?.command === 'openLogs') {
-        await openLogsFile();
-        return;
-      }
-      if (msg?.command === 'copy' && typeof msg?.text === 'string') {
-        await vscode.env.clipboard.writeText(msg.text);
-        vscode.window.showInformationMessage('Copied to clipboard');
-        return;
-      }
-    } catch (e) {
-      vscode.window.showErrorMessage(`[Striker] Webview action failed: ${String(e)}`);
+/* ------------------------------------------------------------------------------------------------
+ * HTML
+ * ------------------------------------------------------------------------------------------------ */
+
+function baseHtml() {
+  return `<!DOCTYPE html>
+<html>
+  <head><meta charset="UTF-8"><meta name="viewport" content="width=device-width"/></head>
+  <body style="background:#1e1e1e;color:#ddd;font-family:var(--vscode-font-family,monospace);font-size:12px;">
+    <div style="padding:12px;">Loading…</div>
+  </body>
+</html>`;
+}
+
+function renderHtml(data: any) {
+  const css = `
+    body{background:#1e1e1e;color:#ddd;font-family:var(--vscode-font-family,monospace);font-size:12px;}
+    h1{font-size:16px;margin:8px 0 4px;}
+    .summary{background:#21372a;color:#cfead7;padding:6px 8px;border-radius:6px;margin:8px 0;}
+    .toolbar{margin:6px 0;}
+    .toolbar button{margin-right:6px;}
+    details{border:1px solid #2f2f2f;border-radius:6px;margin:10px 0;background:#171717;}
+    summary{cursor:pointer;padding:6px 8px;background:#202020;border-radius:6px;}
+    .body{padding:8px;}
+    table{width:100%;border-collapse:collapse;}
+    th,td{border:1px solid #2f2f2f;padding:6px;vertical-align:top;}
+    pre{white-space:pre-wrap;margin:0;}
+    .errors{border:1px solid #703b3b;background:#2a1212;color:#ffd7d7;border-radius:6px;padding:8px;margin:10px 0;}
+    a{color:#4ea1ff;text-decoration:none;}
+    .badge{display:inline-block;background:#2a2a2a;border-radius:10px;padding:2px 6px;margin-top:6px;}
+  `;
+
+  const planRows = (data?.plan?.steps ?? []).map((s: any) => {
+    if (typeof s === 'string') {
+      return row([esc(s), '', '', '', '']);
     }
-  });
-}
+    return row([
+      esc(s?.id ?? ''),
+      esc(s?.title ?? ''),
+      esc(s?.intent ?? ''),
+      code(json(s?.inputs ?? {})),
+      esc(s?.rollbackHint ?? ''),
+    ]);
+  }).join('');
 
-// --- Extension-side helpers ---
+  const execRows = (data?.execution?.steps ?? []).map(execRow).join('');
 
-async function openWorkspacePath(pathLike: string) {
-  // supports "file.ts:42[:col]"
-  const m = pathLike.match(
-    /([A-Za-z0-9_./-]+\.(md|ts|js|tsx|jsx|json|yml|yaml|py|go|rs|java|kt|cs|c|cpp))(?:[:](\d+))?(?:[:](\d+))?/
-  );
-  const fileOnly = m ? m[1] : pathLike;
-  const line = m?.[2] ? Math.max(1, parseInt(m[2], 10)) : undefined;
-  const col  = m?.[3] ? Math.max(1, parseInt(m[3], 10)) : 1;
+  const errorsCard = Array.isArray(data?.execution?.errors) && data.execution.errors.length
+    ? renderErrorsCard(data)
+    : '';
 
-  let uri: vscode.Uri;
-  if (/^([a-zA-Z]:[\\/]|\/)/.test(fileOnly)) {
-    uri = vscode.Uri.file(fileOnly);
-  } else {
-    const ws = vscode.workspace.workspaceFolders?.[0]?.uri;
-    if (!ws) { vscode.window.showErrorMessage('No workspace open'); return; }
-    uri = vscode.Uri.joinPath(ws, fileOnly);
-  }
+  const obsRows = (data?.observation?.notes ?? []).map((n: string, i: number) =>
+    row([String(i + 1), linkify(esc(n))])
+  ).join('');
 
-  const doc = await vscode.workspace.openTextDocument(uri);
-  const editor = await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-  if (line) {
-    const pos = new vscode.Position(Math.min(line, doc.lineCount) - 1, Math.max(0, (col ?? 1) - 1));
-    editor.selection = new vscode.Selection(pos, pos);
-    editor.revealRange(new vscode.Range(pos, pos), vscode.TextEditorRevealType.InCenter);
-  }
-}
+  const duration = data?.observation?.metrics?.duration_ms ?? data?.observation?.metrics?.durationMs ?? 0;
+  const okCount = (data?.execution?.steps ?? []).filter((r: any) => r?.status === 'ok' || r?.ok === true).length;
 
-async function openLogsFile() {
-  const ws = vscode.workspace.workspaceFolders?.[0]?.uri;
-  if (!ws) { vscode.window.showErrorMessage('No workspace open'); return; }
-  const logsDir = vscode.Uri.joinPath(ws, '.striker');
-  const logUri = vscode.Uri.joinPath(logsDir, 'striker.log');
-  try { await vscode.workspace.fs.createDirectory(logsDir); } catch {}
-  try { await vscode.workspace.fs.stat(logUri); }
-  catch {
-    const seed = new TextEncoder().encode(
-      `[${new Date().toISOString()}] Striker log created.\n` +
-      `Tip: write agent run notes here.\n`
-    );
-    await vscode.workspace.fs.writeFile(logUri, seed);
-  }
-  const doc = await vscode.workspace.openTextDocument(logUri);
-  await vscode.window.showTextDocument(doc, vscode.ViewColumn.One);
-}
+  // Sections
+  const planSection = `
+<details open>
+  <summary>Plan</summary>
+  <div class="body">
+    <table>
+      <thead><tr><th>id</th><th>title</th><th>intent</th><th>inputs</th><th>rollbackHint</th></tr></thead>
+      <tbody id="plan-body">${planRows}</tbody>
+    </table>
+  </div>
+</details>`;
 
-// --- Webview HTML ---
+  const execSection = `
+<details open>
+  <summary>Execution</summary>
+  <div class="body">
+    <table>
+      <thead><tr><th>id</th><th>title</th><th>intent</th><th>path</th><th>status</th><th>stepId</th><th>detail/diff</th></tr></thead>
+      <tbody id="exec-body">${execRows}</tbody>
+    </table>
+  </div>
+</details>`;
 
-function getWebviewContent(payload: any): string {
-  const payloadEncoded = encodeURIComponent(JSON.stringify(payload || {}));
+  const obsSection = `
+<details open>
+  <summary>Observation</summary>
+  <div class="body">
+    <table>
+      <thead><tr><th>id</th><th>note</th></tr></thead>
+      <tbody>${obsRows}</tbody>
+    </table>
+    <div class="badge">duration_ms: ${duration}</div>
+  </div>
+</details>`;
 
-  return /* html */ `
+  return `<!DOCTYPE html>
 <html>
 <head>
-  <meta charset="UTF-8" />
-  <style>
-    :root{
-      --fg: var(--vscode-editor-foreground);
-      --bg: var(--vscode-editor-background);
-      --border: var(--vscode-editorWidget-border);
-      --hover: var(--vscode-editorHoverWidget-background);
-      --ok-bg: #1e4620; --ok-fg: #a3e5a0;
-      --warn-bg: #4a3c1e; --warn-fg: #f6e58d;
-      --err-bg: #4a1e1e; --err-fg: #ff9f9f;
-    }
-    body { font-family: var(--vscode-font-family); color: var(--fg); background: var(--bg); padding: 10px; }
-    h1 { margin: 0 0 10px; }
-    .summary { padding: 8px; margin: 10px 0 12px; border-radius: 6px; }
-    .summary.ok { background: var(--ok-bg); color: var(--ok-fg); }
-    .summary.warning { background: var(--warn-bg); color: var(--warn-fg); }
-    .summary.error { background: var(--err-bg); color: var(--err-fg); }
-    .summary.neutral { background: #333; color: #ccc; }
-    .toolbar button { margin-right: 6px; }
-
-    .card { border: 1px solid var(--border); border-radius: 6px; margin: 10px 0; }
-    .card-header {
-      padding: 8px 10px;
-      cursor: pointer;
-      background: var(--hover);
-      user-select: none;
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-    }
-    .card-header:hover { background: #555; }
-    .card-header::after { content: '▶'; transition: transform 0.2s; }
-    .card-header.open::after { transform: rotate(90deg); content: '▼'; }
-    .card-content { padding: 8px 10px; display: none; }
-    .card-content.active { display: block; }
-
-    table { border-collapse: collapse; width: 100%; margin-top: 6px; }
-    th, td { border: 1px solid #444; padding: 4px 6px; font-size: 12px; vertical-align: top; }
-    th { background: var(--vscode-editor-inactiveSelectionBackground); }
-    .error-row { background: var(--err-bg); color: var(--err-fg); }
-    .warning-row { background: var(--warn-bg); color: var(--warn-fg); }
-    em { color: #999; }
-  </style>
+  <meta charset="UTF-8"/><meta name="viewport" content="width=device-width"/>
+  <style>${css}</style>
 </head>
 <body>
   <h1>Striker Results</h1>
 
-  <!-- Summary banner -->
-  <div id="summary" class="summary neutral">Run Summary: (calculating…)</div>
-
-  <!-- Toolbar -->
-  <div class="toolbar" style="margin:8px 0 10px;">
-    <button id="btnExport">Export JSON</button>
-    <button id="btnLogs">Open Logs</button>
+  <div class="summary">Run Summary: <strong>${okCount} ok</strong></div>
+  <div class="toolbar">
+    <button id="btn-export">Export JSON</button>
+    <button id="btn-logs">Open Logs</button>
   </div>
 
-  <!-- Collapsible cards -->
-  <div class="card">
-    <div class="card-header open" onclick="toggleCard(this)">Plan</div>
-    <div class="card-content active"><div id="plan-steps">—</div></div>
-  </div>
+  ${planSection}
+  ${execSection}
+  ${errorsCard}
+  ${obsSection}
 
-  <div class="card">
-    <div class="card-header open" onclick="toggleCard(this)">Execution</div>
-    <div class="card-content active"><div id="execution">—</div></div>
-  </div>
+  <details>
+    <summary>Raw JSON</summary>
+    <div class="body"><pre>${esc(JSON.stringify(data ?? {}, null, 2))}</pre></div>
+  </details>
 
-  <div class="card">
-    <div class="card-header open" onclick="toggleCard(this)">Observation</div>
-    <div class="card-content active">
-      <div id="observation">—</div>
-      <div id="metrics" style="margin-top:6px;"></div>
-    </div>
-  </div>
+  <script>
+    const vscode = acquireVsCodeApi();
 
-  <div class="card">
-    <div class="card-header open" onclick="toggleCard(this)">Raw JSON</div>
-    <div class="card-content active"><pre><code id="raw-json"></code></pre></div>
-  </div>
+    // Streamed exec rows from extension
+    window.addEventListener('message', (ev) => {
+      const msg = ev.data;
+      if (!msg) return;
+      if (msg.type === 'append-exec' && msg.row) {
+        const tbody = document.getElementById('exec-body');
+        if (!tbody) return;
+        const tr = document.createElement('tr');
+        const r = msg.row;
+        tr.innerHTML = ( ${execRowClientJs()} )(r);
+        tbody.appendChild(tr);
 
-<script>
-  // Safe payload parse
-  var __PAYLOAD_JSON = "${payloadEncoded}";
-  var payload = {};
-  try { payload = __PAYLOAD_JSON ? JSON.parse(decodeURIComponent(__PAYLOAD_JSON)) : {}; }
-  catch (e) { payload = {}; }
-
-  // Helpers
-  function toggleCard(header) {
-    var content = header.nextElementSibling;
-    if (!content) return;
-    var open = content.classList.toggle('active');
-    header.classList.toggle('open', open);
-  }
-  function vsApi(){ return acquireVsCodeApi(); }
-  function openFile(path){ vsApi().postMessage({ command:'openFile', path }); }
-  function openLogs(){ vsApi().postMessage({ command:'openLogs' }); }
-  function exportJson(){
-    const text = JSON.stringify(payload || {}, null, 2);
-    const blob = new Blob([text], {type:'application/json'});
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    const d = new Date(); const pad = n=>n<10?'0'+n:n;
-    const name = 'striker-results-'+d.getFullYear()+pad(d.getMonth()+1)+pad(d.getDate())+'-'+pad(d.getHours())+pad(d.getMinutes())+pad(d.getSeconds())+'.json';
-    a.href = url; a.download = name; a.click();
-    URL.revokeObjectURL(url);
-  }
-
-  // Summary
-  function renderSummary(p){
-    var execSteps = (p && p.execution && p.execution.steps) || [];
-    var errors = execSteps.filter(s => s && s.status === 'error').length;
-    var warnings = execSteps.filter(s => s && s.status === 'warning').length;
-    var oks = execSteps.filter(s => s && s.status === 'ok').length;
-
-    var text = 'No steps executed';
-    var cls = 'neutral';
-    if (execSteps.length > 0) {
-      var parts = [];
-      if (oks > 0) parts.push(oks + ' ok');
-      if (warnings > 0) parts.push(warnings + ' warning' + (warnings > 1 ? 's' : ''));
-      if (errors > 0) parts.push(errors + ' error' + (errors > 1 ? 's' : ''));
-      text = parts.join(' · ');
-      if (errors > 0) cls = 'error';
-      else if (warnings > 0) cls = 'warning';
-      else cls = 'ok';
-    }
-    var box = document.getElementById('summary');
-    if (box) { box.textContent = 'Run Summary: ' + text; box.className = 'summary ' + cls; }
-  }
-
-  // Metrics badges
-  function renderMetrics(p){
-    const container = document.getElementById('metrics');
-    if (!container) return;
-    const metrics = p && p.observation && p.observation.metrics;
-    if (!metrics) { container.innerHTML = ''; return; }
-    const fmt = (n)=>{ const x=Number(n); return Number.isFinite(x)?x.toLocaleString():String(n); }
-    container.innerHTML = Object.keys(metrics).map(k =>
-      '<span style="background:#444;padding:2px 6px;border-radius:4px;margin-right:6px;font-size:11px;">'+k+': '+fmt(metrics[k])+'</span>'
-    ).join('');
-  }
-
-  // Table renderer with clickable paths
-  function renderSmartTable(sel, rows){
-    const container = document.querySelector(sel);
-    if (!container) return;
-    if (!rows || !rows.length){ container.innerHTML = '<em>No data</em>'; return; }
-
-    const cols = Object.keys(rows[0] || {});
-    let html = '<table><tr>' + cols.map(c=>'<th>'+c+'</th>').join('') + '</tr>';
-    const fileRe = /([A-Za-z0-9_./-]+\\.(md|ts|js|tsx|jsx|json|yml|yaml|py|go|rs|java|kt|cs|c|cpp))(?:[:](\\d+))?(?:[:](\\d+))?/g;
-
-    for (const r of rows){
-      const cls = r && r.status==='error' ? 'error-row' : (r && r.status==='warning' ? 'warning-row' : '');
-      html += '<tr class="'+cls+'">' + cols.map(c=>{
-        const val = r[c];
-        if (val===null || val===undefined) return '<td></td>';
-
-        if (typeof val === 'string'){
-          if (/^([A-Za-z0-9_./-]+\\.(md|ts|js|tsx|jsx|json|yml|yaml|py|go|rs|java|kt|cs|c|cpp))(?:[:](\\d+))?(?:[:](\\d+))?$/.test(val)) {
-            return '<td><a href="#" onclick="openFile(\\''+val.replace(/'/g,"\\\\'")+'\\')">'+val+'</a></td>';
+        // update summary if row is ok
+        const ok = (r.status === 'ok') || (r.ok === true);
+        if (ok) {
+          const s = document.querySelector('.summary');
+          if (s) {
+            const m = s.textContent.match(/(\\d+)/);
+            const n = m ? (parseInt(m[1], 10) + 1) : 1;
+            s.innerHTML = 'Run Summary: <strong>' + n + ' ok</strong>';
           }
-          const linked = val.replace(fileRe, (m)=>'<a href="#" onclick="openFile(\\''+m.replace(/'/g,"\\\\'")+'\\')">'+m+'</a>');
-          return '<td>'+linked+'</td>';
         }
+      }
+    });
 
-        if (typeof val === 'object'){
-          let link = '';
-          if (val && typeof val.path === 'string'){
-            const disp = val.path.replace(/'/g,"\\\\'");
-            link = '<div><a href="#" onclick="openFile(\\''+disp+'\\')">'+val.path+'</a></div>';
-          }
-          return '<td>'+link+'<pre>'+JSON.stringify(val, null, 2)+'</pre></td>';
-        }
+    // Toolbar
+    document.getElementById('btn-export')?.addEventListener('click', () => vscode.postMessage({ type: 'export-json' }));
+    document.getElementById('btn-logs')?.addEventListener('click', () => vscode.postMessage({ type: 'open-logs' }));
 
-        return '<td>'+String(val)+'</td>';
-      }).join('') + '</tr>';
-    }
-    html += '</table>';
-    container.innerHTML = html;
-  }
-
-  // Initial render
-  try{
-    const planSteps = (payload && payload.plan && Array.isArray(payload.plan.steps)) ? payload.plan.steps : [];
-    const execution = payload && payload.execution ? (payload.execution.steps || payload.execution) : [];
-    const observation = payload && payload.observation
-      ? (payload.observation.notes ? payload.observation.notes.map((n,i)=>({ id:i+1, note:n })) : [])
-      : [];
-
-    renderSmartTable('#plan-steps', planSteps);
-    renderSmartTable('#execution', execution);
-    renderSmartTable('#observation', observation);
-    renderSummary(payload);
-    renderMetrics(payload);
-
-    const rawEl = document.getElementById('raw-json');
-    if (rawEl) rawEl.textContent = JSON.stringify(payload, null, 2);
-
-    // Wire toolbar buttons
-    document.getElementById('btnExport')?.addEventListener('click', exportJson);
-    document.getElementById('btnLogs')?.addEventListener('click', openLogs);
-  } catch (e){
-    document.body.innerHTML = '<pre style="color:red">'+String(e)+'</pre>';
-  }
-</script>
+    // Errors: Create Issue
+    document.getElementById('btn-create-issue')?.addEventListener('click', () => vscode.postMessage({ type: 'create-issue' }));
+  </script>
 </body>
-</html>
-`;
+</html>`;
+}
+
+/* ------------------------------------------------------------------------------------------------
+ * Helpers used server-side to produce HTML
+ * ------------------------------------------------------------------------------------------------ */
+
+function execRow(row: any) {
+  const cells = [
+    esc(row?.id ?? ''),
+    esc(row?.title ?? ''),
+    esc(row?.intent ?? ''),
+    linkify(esc(row?.path ?? '')),
+    esc(row?.status ?? (row?.ok === false ? 'error' : row?.ok === true ? 'ok' : '')),
+    esc(row?.stepId ?? ''),
+    // was: row?.diff ? code(json(row.diff)) : linkify(esc(row?.detail ?? '')),
+    (row?.detail ? linkify(esc(row.detail)) : '') + (row?.diff ? code(json(row.diff)) : ''),
+
+  ];
+  return `<tr>${cells.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+}
+
+// Same logic but as a client-side function literal, so we can append streamed rows
+function execRowClientJs() {
+  return `
+  (function(r){
+    function esc(x){const map={'&':'&amp;','<':'&lt;','>':'&gt;'};return String(x).replace(/[&<>]/g,(m)=>map[m]??m);}
+    function linkify(txt){
+      const m = String(txt).match(/([^\\s:]+\\.[^\\s:]+):(\\d+)(?::(\\d+))?/);
+      if(m){
+        const path=m[1], line=Number(m[2]), col=m[3]?Number(m[3]):undefined;
+        const args=encodeURIComponent(JSON.stringify({path,line,col}));
+        return '<a href="command:striker.openFileAt?'+args+'">'+esc(txt)+'</a>';
+      }
+      return esc(txt);
+    }
+    function code(x){return '<pre>'+esc(typeof x==='string'?x:JSON.stringify(x,null,2))+'</pre>';}
+    return [
+      esc(r?.id ?? ''), esc(r?.title ?? ''), esc(r?.intent ?? ''), linkify(r?.path ?? ''),
+      esc(r?.status ?? (r?.ok===false?'error':r?.ok===true?'ok':'')), esc(r?.stepId ?? ''),
+      
+      (r?.detail ? linkify(r.detail) : '') + (r?.diff ? code(r.diff) : '')
+
+    ].map(c=>'<td>'+c+'</td>').join('');
+  })
+  `;
+}
+
+function esc(x: any) {
+  const map: Record<string, string> = { '&': '&amp;', '<': '&lt;', '>': '&gt;' };
+  return String(x).replace(/[&<>]/g, (m: string) => map[m] ?? m);
+}
+function code(x: any) {
+  return `<pre>${esc(typeof x === 'string' ? x : JSON.stringify(x, null, 2))}</pre>`;
+}
+function json(x: any) {
+  try { return JSON.stringify(x, null, 2); } catch { return String(x); }
+}
+function row(cols: string[]) {
+  return `<tr>${cols.map((c) => `<td>${c}</td>`).join('')}</tr>`;
+}
+
+// Turn tokens like "src/index.ts:42:3" into command links
+function linkify(txt: string) {
+  const m = String(txt).match(/([^\s:]+\.[^\s:]+):(\d+)(?::(\d+))?/);
+  if (m) {
+    const path = m[1]; const line = Number(m[2]); const col = m[3] ? Number(m[3]) : undefined;
+    const args = encodeURIComponent(JSON.stringify({ path, line, col }));
+    return `<a href="command:striker.openFileAt?${args}">${esc(txt)}</a>`;
+  }
+  return esc(txt);
+}
+
+function renderErrorsCard(data: any) {
+  const errs = (data?.execution?.errors ?? []).map((e: string, i: number) =>
+    `<div style="margin:6px 0;">
+      <pre id="err-${i}">${esc(e)}</pre>
+      <button onclick="navigator.clipboard.writeText(document.getElementById('err-${i}').innerText)">Copy</button>
+    </div>`
+  ).join('');
+  return `<div class="errors">
+    <h3 style="margin-top:0;">Errors</h3>
+    ${errs}
+    <button id="btn-create-issue">Create Issue</button>
+  </div>`;
 }

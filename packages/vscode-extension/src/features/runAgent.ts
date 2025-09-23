@@ -1,145 +1,165 @@
+// packages/vscode-extension/src/features/runAgent.ts
 import * as vscode from 'vscode';
-import { runTask } from '../../../core-agent/dist/index.js';
-import { showResultsPanel } from '../ui/resultsPanel.js';
-import { demoHappy } from '../demoPayload'; // or whatever your demo export is
 
-// Types for normalization
-type StepStatus = 'ok' | 'warning' | 'error' | 'running' | 'skipped';
+export type AgentResult = {
+  plan: { steps: any[] };
+  execution: { steps: any[]; errors?: string[] };
+  observation: { notes: string[]; metrics: { duration_ms: number } };
+};
 
-interface Step {
-  id?: string;
-  title?: string;
-  intent?: string;
-  path?: string;
-  status?: StepStatus;
-  note?: string;
-  notes?: string[];
-  error?: string;
-  stepId?: string;
-  patch?: any;
-  inputs?: any;
-  rollbackHint?: any;
+function sleep(ms: number) {
+  return new Promise((r) => setTimeout(r, ms));
 }
 
-interface AgentPayload {
-  plan?: { steps: Step[]; summary?: string };
-  execution?: { steps: Step[]; notes?: string[]; errors?: { message: string; code?: string; stepId?: string }[] };
-  observation?: { notes?: string[]; errors?: { message: string; trace?: string }[]; metrics?: Record<string, number> };
-  meta?: Record<string, any>;
-}
+// ---------------------------------------------------------------------------
+// Minimal demo agent – just echoes the prompt
+// ---------------------------------------------------------------------------
+export async function runAgent(
+  onEvent?: (e: { type: 'exec-step'; row: any }) => void,
+  userPrompt?: string
+): Promise<AgentResult> {
+  const start = Date.now();
+  const prompt = (userPrompt ?? '').trim();
 
-/**
- * Normalize raw agent output into a consistent AgentPayload shape
- */
-function normalizePayload(raw: any): AgentPayload {
-  if (!raw || typeof raw !== 'object') {
-    return {
-      plan: { steps: [] },
-      execution: { steps: [], notes: ['No data returned from agent'] },
-      observation: { notes: [] },
-    };
+  const plan = {
+    steps: [
+      {
+        id: 'analyze-prompt',
+        title: 'Analyze Prompt',
+        intent: 'analyze',
+        inputs: { prompt },
+        rollbackHint: 'N/A',
+      },
+      {
+        id: 'simulate-action',
+        title: 'Simulate Action',
+        intent: 'noop',
+        inputs: {},
+        rollbackHint: 'N/A',
+      },
+    ],
+  };
+
+  const execution: { steps: any[]; errors?: string[] } = { steps: [] };
+
+  const push = async (row: any) => {
+    try { onEvent?.({ type: 'exec-step', row }); } catch {}
+    execution.steps.push(row);
+    await sleep(120);
+  };
+
+  // 1) Echo the prompt
+  await push({
+    id: 'analyze-prompt',
+    title: 'analyze',
+    intent: 'analyze',
+    status: 'ok',
+    stepId: 'analyze-prompt',
+    detail: prompt || '<empty>',
+  });
+
+  // 2) Simulate some work
+  await push({
+    id: 'simulate-action',
+    title: 'noop',
+    intent: 'noop',
+    status: 'ok',
+    stepId: 'simulate-action',
+    detail: 'simulated',
+  });
+ 
+  await push({
+    id: 'simulate-action',
+    title: 'noop',
+    intent: 'noop',
+    status: 'ok',
+    stepId: 'simulate-action',
+    detail: 'demo.txt:2:1',   // deep link
+  });
+
+  // TEMP: propose creating demo1.txt
+await push({
+  id: 'write-demo1',
+  title: 'create_file',
+  intent: 'file_write',
+  status: 'ok',
+  stepId: 'write-demo1',
+  path: 'demo1.txt',
+  detail: 'demo1.txt:1:1',
+  diff: {
+    path: 'demo1.txt',
+    action: 'create',
+    after: `# Demo1
+This file was created by Striker Apply Last Run.`,
+    diff: '--- /dev/null\n+++ b/demo1.txt\n@@\n+# Demo1\n+This file was created by Striker Apply Last Run.\n'
   }
+});
 
-  const planSteps = raw.plan?.steps ?? raw.plan ?? raw.steps ?? [];
-  const exec = raw.execution ?? raw.exec ?? raw.run ?? {};
-  const execSteps = exec.steps ?? raw.executionSteps ?? raw.results ?? [];
-  const obs = raw.observation ?? raw.observe ?? {};
-  const obsNotes = obs.notes ?? raw.observationNotes ?? raw.notes ?? [];
-  const obsErrors = obs.errors ?? raw.observationErrors ?? [];
+// TEMP: propose creating demo2.txt
+await push({
+  id: 'write-demo2',
+  title: 'create_file',
+  intent: 'file_write',
+  status: 'ok',
+  stepId: 'write-demo2',
+  path: 'demo2.txt',
+  detail: 'demo2.txt:1:1',
+  diff: {
+    path: 'demo2.txt',
+    action: 'create',
+    after: `# Demo2
+Another file written by Striker.`,
+    diff: '--- /dev/null\n+++ b/demo2.txt\n@@\n+# Demo2\n+Another file written by Striker.\n'
+  }
+});
 
-  const normalizeStep = (s: any): Step => {
-    const status: StepStatus | undefined = s?.status ?? (s?.error ? 'error' : undefined);
-    let notes: string[] | undefined;
-    if (Array.isArray(s?.notes)) notes = s.notes;
-    else if (typeof s?.note === 'string') notes = [s.note];
-
-    return {
-      id: s?.id ?? s?.stepId,
-      title: s?.title ?? s?.intent ?? s?.path,
-      intent: s?.intent,
-      path: s?.path,
-      status,
-      error: s?.error,
-      notes,
-      stepId: s?.stepId,
-      patch: s?.patch,
-      inputs: s?.inputs,
-      rollbackHint: s?.rollbackHint,
-    };
-  };
-
-  const normPlanSteps = Array.isArray(planSteps) ? planSteps.map(normalizeStep) : [];
-  const normExecSteps = Array.isArray(execSteps) ? execSteps.map(normalizeStep) : [];
-
-  const execNotes: string[] = [];
-  if (Array.isArray(exec?.notes)) execNotes.push(...exec.notes);
-  if (typeof exec?.note === 'string') execNotes.push(exec.note);
-
-  const execErrors =
-    Array.isArray(exec?.errors)
-      ? exec.errors.map((e: any) => ({
-          message: String(e?.message ?? e ?? 'Unknown error'),
-          code: e?.code,
-          stepId: e?.stepId,
-        }))
-      : [];
-
-  const normObsErrors = Array.isArray(obsErrors)
-    ? obsErrors.map((e: any) => ({
-        message: String(e?.message ?? e ?? 'Unknown error'),
-        trace: e?.trace ?? e?.stack,
-      }))
-    : [];
-
-  const metrics: Record<string, number> | undefined = typeof obs?.metrics === 'object' ? obs.metrics : undefined;
-
+  const duration_ms = Date.now() - start;
   return {
-    plan: { steps: normPlanSteps, summary: raw.plan?.summary ?? raw.summary },
-    execution: { steps: normExecSteps, notes: execNotes.length ? execNotes : undefined, errors: execErrors.length ? execErrors : undefined },
+    plan,
+    execution,
     observation: {
-      notes: Array.isArray(obsNotes) ? obsNotes : [String(obsNotes)],
-      errors: normObsErrors.length ? normObsErrors : undefined,
-      metrics,
+      notes: [
+        'demo: no real actions, only echo + simulation',
+        prompt ? `prompt: ${prompt}` : 'prompt: <empty>',
+      ],
+      metrics: { duration_ms },
     },
-    meta: typeof raw.meta === 'object' ? raw.meta : undefined,
   };
 }
 
-// Register the command
+// ---------------------------------------------------------------------------
+// Fallback demo payload – used if runAgent throws/returns nothing
+// ---------------------------------------------------------------------------
+export function demoPayload(): AgentResult {
+  return {
+    plan: { steps: [{ id: 'demo', title: 'Demo Step', intent: 'noop', inputs: {}, rollbackHint: '' }] },
+    execution: { steps: [{ id: 'demo', title: 'noop', intent: 'noop', status: 'ok', stepId: 'demo', detail: 'simulated' }] },
+    observation: { notes: ['demo payload used'], metrics: { duration_ms: 0 } },
+  };
+}
 
-export function registerRunAgent(context: vscode.ExtensionContext) {
-  const cmdId = 'striker.runAgent';
-  context.subscriptions.push(
-    vscode.commands.registerCommand(cmdId, async () => {
-      const userPrompt = await vscode.window.showInputBox({
-        prompt: 'What should Striker do?',
-        placeHolder: 'e.g., “scan workspace and propose edits”',
-      });
-      if (!userPrompt) return;
+// ---------------------------------------------------------------------------
+// Append log line to .striker/striker.log
+// ---------------------------------------------------------------------------
+export async function appendLog(line: string) {
+  const ws = vscode.workspace.workspaceFolders?.[0];
+  if (!ws) return;
+  const dir = vscode.Uri.joinPath(ws.uri, '.striker');
+  const file = vscode.Uri.joinPath(dir, 'striker.log');
 
-      let payload: any;
-      try {
-        const raw = await vscode.window.withProgress(
-          { location: vscode.ProgressLocation.Notification, title: 'Striker', cancellable: false },
-          async progress => {
-            progress.report({ message: 'Planning…' });
-            const res = await runTask({ prompt: userPrompt, mode: 'preview' });
-            progress.report({ message: 'Done' });
-            return res;
-          }
-        );
-        payload = normalizePayload(raw);
-      } catch (e) {
-        vscode.window.showErrorMessage(`[Striker] Agent failed: ${String(e)}`);
-      }
+  try {
+    await vscode.workspace.fs.createDirectory(dir);
 
-      // Fallback if agent returned nothing or empty
-      if (!payload || !payload.plan || !Array.isArray(payload.plan.steps)) {
-        payload = demoHappy;
-      }
+    let prevText = '';
+    try {
+      const buf = await vscode.workspace.fs.readFile(file);
+      prevText = new TextDecoder().decode(buf);
+    } catch { /* no existing log */ }
 
-      console.log('[Striker] sending payload to panel:', payload);
-      showResultsPanel('Striker Results', payload);
-    })
-  );
+    const nextText = (prevText ? prevText : '') + line + '\n';
+    const out = new TextEncoder().encode(nextText);
+    await vscode.workspace.fs.writeFile(file, out);
+  } catch {
+    // ignore log errors
+  }
 }
