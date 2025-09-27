@@ -165,14 +165,6 @@ export function renderResultsHtml(): string {
       walk(root);
     }
 
-    // Keeps one row per logical step across id/stepId changes
-    var __execRowIndex = Object.create(null);
-    function sigFor(r) {
-      var t = (r.title || r.step || '').toString().trim().toLowerCase().replace(/\s+/g,' ');
-      var i = (r.intent || '').toString().trim().toLowerCase();
-      return t + '::' + i;
-    }
-
     // Stream-friendly Execution row with compact columns and collapsible detail
     function appendExecRow(r) {
       var tbody = byId('exec-body'); if (!tbody) return;
@@ -195,21 +187,11 @@ export function renderResultsHtml(): string {
         return 'running';
       }
       function keyForRow(r){
-        var sig = sigFor(r);
-        // If we already assigned a row key for this signature, reuse it
-        if (__execRowIndex[sig]) return __execRowIndex[sig];
-
-        // Otherwise pick the most stable available id as the DOM key
-        var domKey =
-          (r && r.stepId) ? ('exec-' + String(r.stepId)) :
-          (r && r.id)     ? ('exec-' + String(r.id)) :
-          'exec-' + encodeURIComponent((r.title||r.step||'') + '::' + (r.intent||''));
-
-        // Remember: any future updates with same signature map to this same row
-        __execRowIndex[sig] = domKey;
-        return domKey;
+        if (r && r.id) return 'exec-'+String(r.id);
+        if (r && r.stepId) return 'exec-'+String(r.stepId);
+        var base = (r && (r.title||r.step||'')) + '::' + (r && (r.intent||'')); 
+        return 'exec-'+encodeURIComponent(base||Math.random().toString(36).slice(2));
       }
-
       function needsCollapse(s){
         if (s==null) return false;
         var text=String(s);
@@ -285,9 +267,6 @@ export function renderResultsHtml(): string {
       if (cells.status) cells.status.textContent = status;
       if (cells.stepId) cells.stepId.textContent = stepId;
       if (cells.detail) { cells.detail.innerHTML = ''; cells.detail.appendChild(renderDetail(r.detail)); makeFileLinks(cells.detail); }
-      if (cells.id && r.stepId && cells.id.textContent === '0') {
-        cells.id.textContent = r.stepId;
-      }
     }
 
     // Message handling from extension

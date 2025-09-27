@@ -1,0 +1,152 @@
+cat > execution-row.patch <<'PATCH'
+diff --git a/packages/vscode-extension/src/ui/resultsPanel.ts b/packages/vscode-extension/src/ui/resultsPanel.ts
+index 0000000..0000001 100644
+--- a/packages/vscode-extension/src/ui/resultsPanel.ts
++++ b/packages/vscode-extension/src/ui/resultsPanel.ts
+@@ -1,200 +1,200 @@
+@@
+-    function appendExecRow(r) {
+-      var tbody = byId('exec-body'); if (!tbody) return;
+-
+-      function cleanIntent(v){ if (v==null || v==='' || v==='noop') return '-'; return String(v); }
+-      function humanTitle(v,fallback){ var s=(v&&String(v).trim())?String(v).trim():(fallback||''); if(!s) return '-'; s=s.replace(/[_-]+/g,' '); return s.charAt(0).toUpperCase()+s.slice(1); }
+-      function trimDetail(text){
+-        if (text==null) return '-';
+-        var s=String(text), lines=s.split(/\r?\n/), maxLines=6;
+-        if (lines.length<=maxLines && s.length<=400) return s;
+-        var el=document.createElement('details'), sum=document.createElement('summary'); sum.textContent='show more…';
+-        var pre=document.createElement('pre'); pre.className='mono'; pre.textContent=s; el.appendChild(sum); el.appendChild(pre); return el;
+-      }
+-
+-      var tr=document.createElement('tr');
+-      var cls=(r.ok===true)?'ok':(r.ok===false?'fail':'running'); tr.className=cls;
+-
+-      function td(clsName, content){ var d=document.createElement('td'); if(clsName)d.className=clsName;
+-        if (content instanceof HTMLElement) d.appendChild(content);
+-        else d.textContent=(content===null||content===undefined||content==='')?'-':String(content);
+-        return d;
+-      }
+-
+-      var id=r.id||'-', title=humanTitle(r.title,r.stepId), intent=cleanIntent(r.intent);
+-      var path=(r.path&&String(r.path).trim())?r.path:'-';
+-      var status=r.status||(r.ok===true?'ok':(r.ok===false?'error':'running'));
+-      var stepId=r.stepId||'-', detail=trimDetail(r.detail);
+-
+-      tr.appendChild(td('col-id', id));
+-      tr.appendChild(td('col-title', title));
+-      tr.appendChild(td('col-intent', intent));
+-      tr.appendChild(td('col-path', path));
+-      tr.appendChild(td('col-status', status));
+-      tr.appendChild(td('col-stepId', stepId));
+-      tr.appendChild(td('col-detail', detail));
+-
+-      tbody.appendChild(tr);
+-      makeFileLinks(tr);
+-
+-      if (r.ok === true) updateSummaryOkCount(1);
+-    }
++    // Stream-friendly Execution row with compact columns and collapsible detail
++    function appendExecRow(r) {
++      var tbody = byId('exec-body'); if (!tbody) return;
++
++      // ---- helpers (scoped) ----
++      function esc(s){ return String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
++      function cleanIntent(v){ if (v==null || v==='' || v==='noop') return '-'; return String(v); }
++      function humanTitle(v,fallback){
++        var s=(v&&String(v).trim())?String(v).trim():(fallback||'');
++        if(!s) return '-'; s=s.replace(/[_-]+/g,' '); return s.charAt(0).toUpperCase()+s.slice(1);
++      }
++      function statusText(r){
++        if (r.status) return String(r.status);
++        if (r.ok===true) return 'ok';
++        if (r.ok===false) return 'error';
++        return 'running';
++      }
++      function clsForRow(r){
++        if (r.ok===true) return 'ok';
++        if (r.ok===false) return 'fail';
++        return 'running';
++      }
++      function keyForRow(r){
++        if (r && r.id) return 'exec-'+String(r.id);
++        if (r && r.stepId) return 'exec-'+String(r.stepId);
++        var base = (r && (r.title||r.step||'')) + '::' + (r && (r.intent||'')); 
++        return 'exec-'+encodeURIComponent(base||Math.random().toString(36).slice(2));
++      }
++      function needsCollapse(s){
++        if (s==null) return false;
++        var text=String(s);
++        var lines=text.split(/\r?\n/);
++        return (lines.length>8 || text.length>240);
++      }
++      function renderDetail(detail){
++        if (detail==null || detail==='') return document.createTextNode('-');
++        var text=String(detail);
++        if (!needsCollapse(text)) {
++          var pre=document.createElement('pre'); pre.className='mono detail-preview'; pre.textContent=text; return pre;
++        }
++        var lines=text.split(/\r?\n/);
++        var previewLines=lines.slice(0,8).join('\n');
++        if (previewLines.length>240) previewLines = previewLines.slice(0,240)+'…';
++        var wrap=document.createElement('div');
++        var details=document.createElement('details');
++        var summary=document.createElement('summary'); summary.textContent='show more…';
++        var preFull=document.createElement('pre'); preFull.className='mono detail-pre'; preFull.textContent=text;
++        details.appendChild(summary); details.appendChild(preFull);
++        var prePreview=document.createElement('pre'); prePreview.className='mono detail-preview'; prePreview.textContent=previewLines + '\n…';
++        wrap.appendChild(details); wrap.appendChild(prePreview);
++        return wrap;
++      }
++      function td(clsName, content){
++        var d=document.createElement('td'); if(clsName) d.className=clsName;
++        if (content instanceof Node) d.appendChild(content);
++        else d.textContent=(content==null || content==='')?'-':String(content);
++        return d;
++      }
++
++      // ---- compute short fields ----
++      var rowId = keyForRow(r);
++      var title = humanTitle(r.title, r.stepId || r.step || '');
++      var intent = cleanIntent(r.intent);
++      var path = (r.path&&String(r.path).trim())?r.path:'-'; // we keep column but keep it short
++      var status = statusText(r);
++      var stepId = r.stepId || '-';
++
++      // ---- find or create row (stream-update friendly) ----
++      var tr = document.getElementById(rowId);
++      if (!tr) {
++        tr = document.createElement('tr');
++        tr.id = rowId;
++        tr.className = clsForRow(r);
++        tr.appendChild(td('col-id', r.id || '-'));
++        tr.appendChild(td('col-title', title));
++        tr.appendChild(td('col-intent', intent));
++        tr.appendChild(td('col-path', path));
++        tr.appendChild(td('col-status', status));
++        tr.appendChild(td('col-stepId', stepId));
++        tr.appendChild(td('col-detail', renderDetail(r.detail)));
++        tbody.appendChild(tr);
++        makeFileLinks(tr);
++        if (r.ok === true) updateSummaryOkCount(1);
++        return;
++      }
++
++      // ---- update existing row in place ----
++      tr.className = clsForRow(r);
++      var cells = {
++        id: tr.querySelector('td.col-id'),
++        title: tr.querySelector('td.col-title'),
++        intent: tr.querySelector('td.col-intent'),
++        path: tr.querySelector('td.col-path'),
++        status: tr.querySelector('td.col-status'),
++        stepId: tr.querySelector('td.col-stepId'),
++        detail: tr.querySelector('td.col-detail')
++      };
++      if (cells.title) cells.title.textContent = title;
++      if (cells.intent) cells.intent.textContent = intent;
++      if (cells.path) cells.path.textContent = path;
++      if (cells.status) cells.status.textContent = status;
++      if (cells.stepId) cells.stepId.textContent = stepId;
++      if (cells.detail) { cells.detail.innerHTML = ''; cells.detail.appendChild(renderDetail(r.detail)); makeFileLinks(cells.detail); }
++    }
+ PATCH

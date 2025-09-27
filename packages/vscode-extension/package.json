@@ -8,16 +8,34 @@
   },
   "main": "./out/extension.js",
   "activationEvents": [
-    "onCommand:striker.runAgent"
+    "onCommand:striker.runAgent",
+    "onCommand:striker.runAgentPrompt",
+    "onCommand:striker.showDemo",
+    "onCommand:striker.openLogs",
+    "onCommand:striker.exportLastRun",
+    "onCommand:striker.createIssueDraft",
+    "onCommand:striker.openFileAt",
+    "onCommand:striker.applyLastRun"           
+
   ],
   "contributes": {
     "commands": [
-      {
-        "command": "striker.runAgent",
-        "title": "Striker: Run Agent"
-      },
-      { "command": "striker.showDemo", "title": "Striker: Show Demo" }
+      { "command": "striker.runAgent", "title": "Striker: Run Agent" },
+      { "command": "striker.runAgentPrompt", "title": "Striker: Run Agent (Prompt)" },
+      { "command": "striker.showDemo", "title": "Striker: Show Demo" },
+      { "command": "striker.openLogs", "title": "Striker: Open Logs" },
+      { "command": "striker.exportLastRun", "title": "Striker: Export Last Run" },
+      { "command": "striker.createIssueDraft", "title": "Striker: Create Issue Draft" },
+      { "command": "striker.openFileAt", "title": "Striker: Open File At" },
+      { "command": "striker.applyLastRun", "title": "Striker: Apply Last Run (Write Files)" } 
 
+    ],
+    "keybindings": [
+      {
+        "command": "striker.runAgentPrompt",
+        "key": "ctrl+enter",
+        "when": "editorTextFocus"
+      }
     ]
   },
   "scripts": {
