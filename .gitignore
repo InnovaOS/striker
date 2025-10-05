@@ -22,3 +22,7 @@ Thumbs.db
 .striker/
 *.log
 tmp/
+demo.txt
+demo1.txt
+demo2.txt
+striker-results.json

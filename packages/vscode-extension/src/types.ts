@@ -42,3 +42,54 @@ export interface AgentPayload {
   observation?: Observation;
   meta?: Record<string, any>;
 }
+
+// packages/vscode-extension/src/types.ts
+
+/** Top-level payload for results. */
+export interface ResultsPayload {
+  version: number; // schema version
+  plan?: {
+    steps: PlanStep[];
+    inputs?: Record<string, any>;
+  };
+  execution?: ExecRow[];
+  observation?: {
+    notes?: string[];
+    metrics?: { duration_ms?: number; [k: string]: any };
+  };
+}
+
+/** A single planned step. */
+export interface PlanStep {
+  id?: string | number;
+  title?: string;
+  step?: string;   // legacy field
+  intent?: string;
+  inputs?: Record<string, any>;
+  rollbackHint?: string;
+}
+
+/** A single execution row. */
+export interface ExecRow {
+  id?: string | number;
+  stepId?: string | number;
+  title?: string;
+  step?: string;   // legacy field
+  intent?: string;
+  path?: string;
+  ok?: boolean;
+  status?: string;
+  detail?: string;
+}
+
+/** Message flowing from extension → webview. */
+export type ResultsMessage =
+  | { type: 'final-payload'; payload: ResultsPayload }
+  | { type: 'append-exec'; row: ExecRow };
+
+/** Message flowing from webview → extension. */
+export type ToolbarMessage =
+  | { type: 'export-json' }
+  | { type: 'open-logs' }
+  | { type: 'open-file'; target: string };
+

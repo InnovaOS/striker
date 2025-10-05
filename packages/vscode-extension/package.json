@@ -14,6 +14,8 @@
     "onCommand:striker.openLogs",
     "onCommand:striker.exportLastRun",
     "onCommand:striker.createIssueDraft",
+    "onCommand:striker.exportResults",
+    "onCommand:striker.openResultsPanel",
     "onCommand:striker.openFileAt",
     "onCommand:striker.applyLastRun"           
 
@@ -24,8 +26,10 @@
       { "command": "striker.runAgentPrompt", "title": "Striker: Run Agent (Prompt)" },
       { "command": "striker.showDemo", "title": "Striker: Show Demo" },
       { "command": "striker.openLogs", "title": "Striker: Open Logs" },
+      { "command": "striker.exportResults",  "title": "Striker: Export Last Results (JSON)" },
       { "command": "striker.exportLastRun", "title": "Striker: Export Last Run" },
       { "command": "striker.createIssueDraft", "title": "Striker: Create Issue Draft" },
+      { "command": "striker.openResultsPanel","title": "Striker: Open Results Panel" },
       { "command": "striker.openFileAt", "title": "Striker: Open File At" },
       { "command": "striker.applyLastRun", "title": "Striker: Apply Last Run (Write Files)" } 
 
