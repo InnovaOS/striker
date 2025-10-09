@@ -18,6 +18,9 @@ importers:
 
   packages/core-agent:
     devDependencies:
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
       rimraf:
         specifier: ^6.0.0
         version: 6.0.1
@@ -26,7 +29,14 @@ importers:
         version: 5.9.2
 
   packages/vscode-extension:
+    dependencies:
+      '@striker/core-agent':
+        specifier: workspace:*
+        version: link:../core-agent
     devDependencies:
+      '@types/node':
+        specifier: ^24.7.0
+        version: 24.7.0
       '@types/vscode':
         specifier: ^1.85.0
         version: 1.104.0
@@ -47,6 +57,9 @@ packages:
   '@isaacs/cliui@8.0.2':
     resolution: {integrity: sha512-O8jcjabXaleOG9DQ0+ARXWZBTfnP4WNAqzuiJK7ll44AmxGKv/J2M4TPjxjY3znBCfvBXFzucm1twdyFybFqEA==}
     engines: {node: '>=12'}
+
+  '@types/node@24.7.0':
+    resolution: {integrity: sha512-IbKooQVqUBrlzWTi79E8Fw78l8k1RNtlDDNWsFZs7XonuQSJ8oNYfEeclhprUldXISRMLzBpILuKgPlIxm+/Yw==}
 
   '@types/vscode@1.104.0':
     resolution: {integrity: sha512-0KwoU2rZ2ecsTGFxo4K1+f+AErRsYW0fsp6A0zufzGuhyczc2IoKqYqcwXidKXmy2u8YB2GsYsOtiI9Izx3Tig==}
@@ -171,6 +184,9 @@ packages:
     engines: {node: '>=14.17'}
     hasBin: true
 
+  undici-types@7.14.0:
+    resolution: {integrity: sha512-QQiYxHuyZ9gQUIrmPo3IA+hUl4KYk8uSA7cHrcKd/l3p1OTpZcM0Tbp9x7FAtXdAYhlasd60ncPpgu6ihG6TOA==}
+
   which@2.0.2:
     resolution: {integrity: sha512-BLI3Tl1TW3Pvl70l3yq3Y64i+awpwXqsGBYWkkqMtnbXgrMD+yj7rhW0kuEDxzJaYXGjEW5ogapKNMEKNMjibA==}
     engines: {node: '>= 8'}
@@ -200,6 +216,10 @@ snapshots:
       strip-ansi-cjs: strip-ansi@6.0.1
       wrap-ansi: 8.1.0
       wrap-ansi-cjs: wrap-ansi@7.0.0
+
+  '@types/node@24.7.0':
+    dependencies:
+      undici-types: 7.14.0
 
   '@types/vscode@1.104.0': {}
 
@@ -306,6 +326,8 @@ snapshots:
       ansi-regex: 6.2.2
 
   typescript@5.9.2: {}
+
+  undici-types@7.14.0: {}
 
   which@2.0.2:
     dependencies:

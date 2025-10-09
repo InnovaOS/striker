@@ -1,34 +1,7 @@
 {
   "folders": [
-    {
-      "path": "packages/vscode-extension"
-    },
-    {
-      "path": "packages/cline-adapter"
-    }
-  ],
-  "settings": {
-    "files.exclude": {
-      "**/node_modules": true,
-      "**/out": false
-    }
-  },
-  "launch": {
-    "version": "0.2.0",
-    "configurations": [
-      {
-        "name": "Run Striker Extension",
-        "type": "extensionHost",
-        "request": "launch",
-        "runtimeExecutable": "${execPath}",
-        "args": [
-          "--extensionDevelopmentPath=${workspaceFolder:packages/vscode-extension}"
-        ],
-        "outFiles": [
-          "${workspaceFolder:packages/vscode-extension}/out/**/*.js"
-        ],
-        "preLaunchTask": "tsc: build - vscode-extension"
-      }
-    ]
-  }
+    { "name": "Striker Root", "path": "." },
+    { "name": "Core Agent", "path": "packages/core-agent" },
+    { "name": "VSCode Extension", "path": "packages/vscode-extension" }
+  ]
 }

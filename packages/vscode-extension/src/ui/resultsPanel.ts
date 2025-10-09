@@ -1,4 +1,4 @@
-// timestamp code 08450510
+// timestamp code 16500610
 // packages/vscode-extension/src/ui/resultsPanel.ts
 import * as vscode from 'vscode';
 import { ExecRow, ResultsMessage, ResultsPayload /*, ToolbarMessage*/ } from '../types';
@@ -542,6 +542,66 @@ export function renderResultsHtml(): string {
     // ---- Message handling from extension ----
     window.addEventListener('message', function (ev) {
       var msg = ev.data; if (!msg) return;
+      // --- NEW: core-agent unified events bridge ---
+      if (msg.type === 'AGENT_RESULT' && msg.payload) {
+        var evt = msg.payload;
+
+        // 1) Plan tab
+        if (evt.type === 'planGenerated') {
+          var planBody = byId('plan-body'); 
+          planBody.innerHTML = '';
+          var steps = Array.isArray(evt.plan) ? evt.plan : [];
+          for (var i = 0; i < steps.length; i++) {
+            var s = steps[i], tr = document.createElement('tr');
+            var id = String(s.id || i + 1);
+            var title = s.title || s.step || '-';
+            var intent = s.intent || '-';
+            var inputs = s.inputs ? JSON.stringify(s.inputs) : '-';
+            var rollback = s.rollbackHint || 'N/A';
+
+            var td1=document.createElement('td'); td1.textContent=id;
+            var td2=document.createElement('td'); td2.textContent=title;
+            var td3=document.createElement('td'); td3.textContent=intent;
+            var td4=document.createElement('td'); td4.textContent=inputs;
+            var td5=document.createElement('td'); td5.textContent=rollback;
+            tr.appendChild(td1); tr.appendChild(td2); tr.appendChild(td3); tr.appendChild(td4); tr.appendChild(td5);
+            planBody.appendChild(tr);
+          }
+          refreshCounts(); 
+          return;
+        }
+
+        // 2) Execution rows
+        if (evt.type === 'executionEvent') {
+          var e = evt.event || {};
+          appendExecRow({
+            id: e.id || '',
+            title: e.title || e.step || '-',
+            intent: e.tool || e.intent || '-',
+            path: e.path || '-',
+            ok: !!e.ok,
+            detail: e.detail || e.output || e.error || e.message || ''
+          });
+          refreshCounts();
+          setRunSummary(computeOkCount());
+          return;
+        }
+
+        // 3) Safety (optional hook)
+        if (evt.type === 'safetyFinding') {
+          // TODO: render safety diagnostics if you have a UI section
+          // console.log('Safety findings:', evt.findings);
+          return;
+        }
+
+        // 4) Observation summary
+        if (evt.type === 'observationComplete') {
+          renderObservation(evt.observation || {});
+          refreshCounts();
+          setRunSummary(computeOkCount());
+          return;
+        }
+      }
 
       if (msg.type === 'append-exec' && msg.row) { appendExecRow(msg.row); return; }
 

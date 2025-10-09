@@ -1,0 +1,73 @@
+packages
+├── cli
+├── core-agent
+│   ├── dist
+│   │   ├── bus.d.ts
+│   │   ├── bus.js
+│   │   ├── contracts.d.ts
+│   │   ├── contracts.js
+│   │   ├── executor.d.ts
+│   │   ├── executor.js
+│   │   ├── index.d.ts
+│   │   ├── index.js
+│   │   ├── logger.d.ts
+│   │   ├── logger.js
+│   │   ├── observer.d.ts
+│   │   ├── observer.js
+│   │   ├── planner.d.ts
+│   │   └── planner.js
+│   ├── node_modules
+│   │   ├── rimraf -> ../../../node_modules/.pnpm/rimraf@6.0.1/node_modules/rimraf
+│   │   └── typescript -> ../../../node_modules/.pnpm/typescript@5.9.2/node_modules/typescript
+│   ├── package.json
+│   ├── src
+│   │   ├── bus.ts
+│   │   ├── contracts.ts
+│   │   ├── executor.ts
+│   │   ├── index.ts
+│   │   ├── logger.ts
+│   │   ├── observer.ts
+│   │   └── planner.ts
+│   ├── tsconfig.json
+│   └── tsconfig.tsbuildinfo
+├── evals
+├── indexer
+├── model-router
+├── toolbus
+└── vscode-extension
+    ├── node_modules
+    │   ├── @types
+    │   │   └── vscode -> ../../../../node_modules/.pnpm/@types+vscode@1.104.0/node_modules/@types/vscode
+    │   └── typescript -> ../../../node_modules/.pnpm/typescript@5.9.2/node_modules/typescript
+    ├── out
+    │   ├── demoPayload.js
+    │   ├── extension.js
+    │   ├── features
+    │   │   ├── runAgent.backup.js
+    │   │   ├── runAgent.js
+    │   │   └── showDemo.js
+    │   ├── types.js
+    │   └── ui
+    │       ├── progress.js
+    │       ├── resultsPanel.backup.js
+    │       ├── resultsPanel.js
+    │       └── resultsPanel.working.backup.js
+    ├── package.json
+    ├── src
+    │   ├── demoPayload.ts
+    │   ├── extension.ts
+    │   ├── features
+    │   │   ├── runAgent.backup.ts
+    │   │   ├── runAgent.ts
+    │   │   └── showDemo.ts
+    │   ├── types
+    │   │   └── cline-adapter.d.ts
+    │   ├── types.ts
+    │   └── ui
+    │       ├── progress.ts
+    │       ├── resultsPanel.backup.ts
+    │       ├── resultsPanel.ts
+    │       └── resultsPanel.working.backup.ts
+    └── tsconfig.json
+
+24 directories, 47 files

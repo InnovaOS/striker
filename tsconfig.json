@@ -1,7 +1,25 @@
 {
-  "files": [],
-  "references": [
-    { "path": "./packages/core-agent" },
-    { "path": "./packages/vscode-extension" }
-  ]
+  "folders": [
+    {
+      "name": "Striker Root",
+      "path": "."
+    },
+    {
+      "name": "Core Agent",
+      "path": "packages/core-agent"
+    },
+    {
+      "name": "VSCode Extension",
+      "path": "packages/vscode-extension"
+    }
+  ],
+  "settings": {
+    "typescript.tsdk": "node_modules/typescript/lib",
+    "files.exclude": {
+      "**/node_modules": true,
+      "**/dist": true,
+      "**/out": true
+    },
+    "terminal.integrated.cwd": "${workspaceFolder}"
+  }
 }

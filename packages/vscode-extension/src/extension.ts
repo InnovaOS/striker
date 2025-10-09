@@ -1,13 +1,53 @@
+// file code 1758
+import * as vscode from "vscode";
+import {
+  AgentTask,
+  PlannerTool,
+  CmdExecTool,
+  FileReadTool,
+  FileWriteTool,
+  NoopTool,
+  ToolCoordinator,
+  type LLMProvider,
+  type TaskState,
+} from '@striker/core-agent';
+import { PanelReporter } from "./agent/PanelReporter";
 
-import * as vscode from 'vscode';
 import { showResultsPanel, acquireOrCreateResultsPanel } from './ui/resultsPanel';
 import { runAgent } from './features/runAgent';
 import showDemo from './features/showDemo';
-import { ResultsPayload, ExecRow } from './types';
+import type { ResultsPayload, ExecRow } from './types';
+
+
+function safeRegisterCommand(id: string, callback: (...a: any[]) => any, context: vscode.ExtensionContext) {
+  try {
+    const disposable = vscode.commands.registerCommand(id, callback);
+    context.subscriptions.push(disposable);
+  } catch {
+    console.warn(`[Striker] Command '${id}' already registered, skipped duplicate.`);
+  }
+}
+
+let __lastResultsPayload: ResultsPayload | undefined;
+
+// 👇 Global flag to stop auto-opening Results Panel during goal prompt
+let __suppressResultsPanelAutoOpen: boolean = false;
+
+let __resultsPanelOnce = false;
+
+async function ensureResultsPanel(): Promise<void> {
+  if (__resultsPanelOnce) {
+    // just reveal existing via command; if your helper exists it will reuse
+    try { await vscode.commands.executeCommand('striker.openResultsPanel'); } catch {}
+    return;
+  }
+  __resultsPanelOnce = true;
+  try { await vscode.commands.executeCommand('striker.openResultsPanel'); } catch {}
+}
 
 // In-memory store of the last final payload shown in the panel.
 // Used by export/apply commands.
-let __lastResultsPayload: ResultsPayload | undefined;
+
 
 export function activate(context: vscode.ExtensionContext) {
   // ---- Run Agent (core) ----
@@ -59,18 +99,28 @@ export function activate(context: vscode.ExtensionContext) {
         ? (result as any).execution
         : [];
 
-    const finalPayload: ResultsPayload = {
-      version: 1,
-      plan: result.plan,
-      execution: execRows,               // <- array of ExecRow
-      observation: result.observation
-    };
-
-    // keep for Export / Apply Last Run
-    __lastResultsPayload = finalPayload;
-
+    // Minimal “plan → execution → observation” payload for the stub
+    const finalPayload = {
+  version: 1,
+  plan: { steps: [] as any[] },
+  execution: [
+    {
+      id: 'e1',
+      title: 'Echo goal to log',
+      intent: 'noop',
+      path: '-',
+      status: 'ok',                
+      detail: 'Goal received.'     
+    }
+  ] as any[],
+  observation: {
+    summary: 'Mock runner finished.',
+    details: 'This is a stub runner.'
+  }
+} as unknown as ResultsPayload;
     // 5) Send final payload to the panel (it will render Plan/Observation/JSON and keep streamed Execution)
     post({ type: 'final-payload', payload: finalPayload });
+    showResultsPanel('Striker Results', finalPayload as any);
 
       };
 
@@ -95,15 +145,67 @@ export function activate(context: vscode.ExtensionContext) {
     })
   );
 
-
-  // Striker: Open Results Panel (minimal payload)
   context.subscriptions.push(
-    vscode.commands.registerCommand('striker.openResultsPanel', async () => {
-      const payload: ResultsPayload = { version: 1, plan: { steps: [] } };
-      __lastResultsPayload = payload;
-      showResultsPanel('Striker Results', payload);
+    vscode.commands.registerCommand('striker.agent.runGoal', async (payload?: any) => {
+      const goal = (payload?.goal ?? '').trim();
+      if (!goal) { vscode.window.showWarningMessage('No goal provided to runner.'); return; }
+
+      try { await vscode.commands.executeCommand('striker.openResultsPanel'); } catch {}
+
+      const finalPayload = {
+        version: 1,
+        plan: { steps: [] as any[] },
+        execution: [
+          { id: 'e1', title: 'Echo goal to log', intent: 'noop', path: '-', status: 'ok', detail: `Goal received: ${goal}` }
+        ] as any[],
+      observation: { summary: 'Mock runner finished.', details: `This is a stub runner for goal: ${goal}` }
+      } as unknown as ResultsPayload;
+
+      __lastResultsPayload = finalPayload;
+
+      // this command might have a stricter type — just cast
+      try {
+        await vscode.commands.executeCommand('striker.results.appendRun', {
+          kind: 'goal',
+          title: goal,
+          finishedAt: Date.now(),
+          meta: { stub: true }
+        } as any);
+      } catch {}
+
+      // prefer your helpers; fall back safely
+      try {
+        const p = acquireOrCreateResultsPanel?.('Striker Results');
+        if (p?.webview?.postMessage) {
+          await p.webview.postMessage({ type: 'final-payload', payload: finalPayload });
+        } else {
+          showResultsPanel?.('Striker Results', finalPayload as any);
+        }
+      } catch {}
     })
   );
+
+  const demo = {
+    plan: { steps: [{ id: "1", title: "Say hello", intent: "noop", inputs: { text: "hello world" } }] },
+    execution: [{ id: "1", title: "Say hello", intent: "noop", path: "-", ok: true, detail: "hello world" }],
+    observation: { summary: "Demo run OK", details: "Rendered via final-payload" }
+  };
+
+  // Post a demo payload so you immediately see something.
+  //panel.webview.postMessage({ type: "final-payload", payload: demo });
+
+  // Striker: Open Results Panel (minimal payload)
+  safeRegisterCommand('striker.openResultsPanel', async () => {
+    const payload = __lastResultsPayload ?? ({
+      version: 1,
+      plan: { steps: [] as any[] },
+      execution: [] as any[],
+      observation: { summary: 'Ready', details: 'Waiting for runs…' }
+    } as any);
+
+    // 👇 This injects HTML + attaches the message listener
+    showResultsPanel('Striker Results', payload as any);
+  }, context);
 
   function postToPanel(msg: any) {
     try {
@@ -346,9 +448,67 @@ export function activate(context: vscode.ExtensionContext) {
       }
     })
   );
+  registerRunCoreAgentGoal(context);
+
 }
 
 export function deactivate() {}
+
+export function registerRunCoreAgentGoal(context: vscode.ExtensionContext) {
+  const disposable = vscode.commands.registerCommand('striker.runCoreAgentGoal', async () => {
+    // 🔒 prevent any activation-time auto-open from stealing focus
+    __suppressResultsPanelAutoOpen = true;
+    try {
+      // 1) Prompt FIRST
+      const goal = await vscode.window.showInputBox({
+        title: 'Core Agent Goal',
+        prompt: 'Describe what you want the Core Agent to achieve.',
+        placeHolder: 'e.g., Scan workspace and summarize pending TODOs',
+        ignoreFocusOut: true,
+        validateInput: v => (!v || !v.trim() ? 'Please enter a goal.' : null),
+      });
+      if (!goal || !goal.trim()) return;
+
+      // 2) Now open/reveal the single shared Results Panel
+      try {
+        await ensureResultsPanel();
+      } catch {}
+
+      // 3) (Optional) seed a “run started” row
+      try {
+        await vscode.commands.executeCommand('striker.results.appendRun', {
+          kind: 'goal',
+          title: goal.trim(),
+          startedAt: Date.now(),
+          meta: { sourceCommand: 'striker.runCoreAgentGoal' },
+        });
+      } catch {}
+
+      // 4) Dispatch to whichever runner exists
+      const runPayload = { goal: goal.trim(), mode: 'goal' as const, source: 'command' };
+      const tryCommandsInOrder = [
+        'striker.agent.runGoal',
+        'striker.agent.run',
+        'striker.internal.runAgentGoal',
+        'striker.startRun',
+      ];
+
+      for (const cmd of tryCommandsInOrder) {
+        try { await vscode.commands.executeCommand(cmd, runPayload); return; } catch {}
+      }
+      vscode.window.showWarningMessage(
+        'Goal captured, but no agent runner command was found. Wire one of: ' +
+        tryCommandsInOrder.join(', ')
+      );
+      
+    } finally {
+      // ✅ re-enable normal behavior
+      __suppressResultsPanelAutoOpen = false;
+    }
+  });
+
+  context.subscriptions.push(disposable);
+}
 
 /** Demo payload factory — replace with your real agent’s output when ready. */
 function makeDemoPayload(prompt: string): ResultsPayload {
@@ -371,6 +531,16 @@ function makeDemoPayload(prompt: string): ResultsPayload {
 /* ---------------------------------- Apply Last Run helpers ---------------------------------- */
 
 type WriteCandidate = { path: string; content: string };
+
+function createResultsPanel() {
+  const panel = vscode.window.createWebviewPanel(
+    "strikerResults",
+    "Striker Results",
+    vscode.ViewColumn.Beside,
+    { enableScripts: true }
+  );
+  return panel;
+}
 
 /** Find file write candidates in payload (execution preferred, plan fallback). */
 function collectWriteCandidates(payload: ResultsPayload): WriteCandidate[] {

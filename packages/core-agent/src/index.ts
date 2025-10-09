@@ -1,33 +1,49 @@
-// packages/core-agent/src/index.ts
-import { planTask } from "./planner.js";
-import { executePlan } from "./executor.js";
-import { observeExecution } from "./observer.js";
-import type { PlanResult } from "./planner.js";
+// Public API (explicit re-exports; CommonJS-friendly)
 
-export function runTask(args: { prompt: string; mode?: "preview" | "apply"; fs?: Record<string, string> }) {
-  const { prompt, mode = "preview", fs } = args;
-  const planResult: PlanResult = planTask({ prompt });
+// types
+export type {
+  AgentBlock,
+  PlanStep,
+  ExecutionEvent,
+  Observation,
+  TaskState,
+  LLMProvider,
+  ToolContext,
+  ToolCallResult,
+  StrikerTool,
+  ResultEvent,
+  ResultReporter,
+} from "./types";
 
-  // Execute the plan to get patches
-  const executionResult = executePlan({
-    plan: planResult.plan,
-    mode,
-    fs
-  });
+// orchestrator
+export { AgentTask } from "./AgentTask";
 
-  // Observe the execution to get human-readable summary
-  const observationResult = observeExecution({
-    execution: executionResult
-  });
+// planner
+export { PlannerTool } from "./planner/PlannerTool";
 
-  return {
-    plan: planResult.plan,
-    execution: executionResult,
-    observation: observationResult,
-  };
-}
+// executor
+export { ToolCoordinator } from "./executor/ToolCoordinator";
+export { Executor } from "./executor/Executor";
+export { CmdExecTool, FileReadTool, FileWriteTool, NoopTool } from "./executor/CommandHandlers";
 
-// re-export types for consumers (optional, handy)
-export type { PlanInput, Plan, PlanResult as PlannerResult } from "./planner.js";
-export type { ExecutionInput, ExecutionResult, Patch, ExecStepResult } from "./executor.js";
-export type { ObservationInput, ObservationResult, ObservationSummary } from "./observer.js";
+// observer
+export { ObservationManager } from "./observer/ObservationManager";
+export { ConsoleReporter } from "./observer/ResultReporter";
+
+// memory
+export { BufferMemory } from "./memory/BufferMemory";
+
+// safety
+export { semgrepValidate } from "./safeedit/SemgrepRunner";
+export { recipeValidate } from "./safeedit/RecipeRunner";
+
+// context
+export type { ContextProvider, ContextSlice, ContextOptions } from "./context/BaseContextProvider";
+export { CurrentFileProvider } from "./context/CurrentFileProvider";
+export { SelectionProvider } from "./context/SelectionProvider";
+export { OpenFilesProvider } from "./context/OpenFilesProvider";
+export { SearchProvider } from "./context/SearchProvider";
+export { gatherContext } from "./context/gatherContext";
+
+// parser
+export { parseBlocks } from "./parser/StreamParser";
