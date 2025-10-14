@@ -1,4 +1,4 @@
-// timestamp code 16500610
+
 // packages/vscode-extension/src/ui/resultsPanel.ts
 import * as vscode from 'vscode';
 import { ExecRow, ResultsMessage, ResultsPayload /*, ToolbarMessage*/ } from '../types';
@@ -109,6 +109,8 @@ export function renderResultsHtml(): string {
     <button id="btn-copy"   onclick="window._copyJSON()">Copy JSON</button>
     <button id="btn-logs"   onclick="window._openLogs()">Open Logs</button>
     <button id="btn-replay" onclick="window._replaySample()">Replay Sample</button>
+    <button id="stop-run" class="btn">Stop</button>
+    <span id="live-badge" class="badge" style="display:none;margin-left:8px;">live</span>
   </div>
 
   <!-- Plan -->
@@ -174,6 +176,20 @@ export function renderResultsHtml(): string {
   <script>
     // ---- VS Code webview API + state helpers ----
     var vscode = (typeof acquireVsCodeApi === 'function') ? acquireVsCodeApi() : null;
+    // Stop button and live badge
+    document.addEventListener('DOMContentLoaded', function () {
+      var stopBtn = document.getElementById('stop-run');
+      if (stopBtn) {
+        stopBtn.addEventListener('click', function () {
+          if (vscode) vscode.postMessage({ type: 'abort-run' });
+        });
+      }
+    });
+    function setLive(on) {
+      var badge = document.getElementById('live-badge');
+      if (badge) badge.style.display = on ? '' : 'none';
+    }
+
     function saveState(patch) {
       try {
         var prev = (vscode && vscode.getState && vscode.getState()) || {};
@@ -542,6 +558,15 @@ export function renderResultsHtml(): string {
     // ---- Message handling from extension ----
     window.addEventListener('message', function (ev) {
       var msg = ev.data; if (!msg) return;
+      if (msg.type === 'AGENT_RESULT' && msg.payload?.type === 'run-started') {
+        setLive(true);
+        return;
+      }
+      if (msg.type === 'AGENT_RESULT' && (msg.payload?.type === 'run-ended' || msg.payload?.type === 'run-stopped')) {
+        setLive(false);
+        return;
+      }
+
       // --- NEW: core-agent unified events bridge ---
       if (msg.type === 'AGENT_RESULT' && msg.payload) {
         var evt = msg.payload;
